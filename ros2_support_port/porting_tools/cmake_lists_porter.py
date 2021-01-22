@@ -168,17 +168,15 @@ class CMakeListsPorter:
                     cmkp.command_to_lines(
                         p[1],
                         cmkp.FormattingOptions()
-                    )
+                    )[0]
                 )
                 removable_idxs.append(p[0])
         _delete_command_idxs(removable_idxs, cmake)
 
     def rule_add_ament_lint_auto(self, cmake):
-        ament_lint_added = False
         # Identify if_blocks
         self.find_if_blocks()
         removable_idxs = []
-        insertion_pairs = []
         for start, stop in self.if_blocks:
             condition = self.cmake[start].body
             if "CATKIN_ENABLE_TESTING" in [arg.contents for arg in condition]:
@@ -228,6 +226,7 @@ class CMakeListsPorter:
         rem_pkgs = len(self.removed_packages)
         mis_pkgs = len(self.unknown_packages)
         ren_pkgs = len(self.renamed_packages)
+        rem_coms = len(self.removed_commands)
         if rem_pkgs + mis_pkgs + ren_pkgs > 0:
             rep += f"CMakeLists.txt file: {self.src}\n"
             if mis_pkgs > 0:
@@ -242,11 +241,8 @@ class CMakeListsPorter:
                 rep += "Renamed packages:\n"
                 rep += "\t" + "\n\t".join(self.renamed_packages)
                 rep += "\n"
+            if rem_coms > 0:
+                rep += "Removed commands:\n"
+                rep += "\t" + "\n\t".join(self.removed_commands)
             rep += "\n"
         return rep
-
-
-if __name__ == "__main__":
-    src = "/home/mathia/Programming/ros1_ws/src/motoman_gp7_support/CMakeLists.txt"
-    conv = CMakeListsPorter(src)
-    conv.port("./updated_CMakeLists.txt")

@@ -438,17 +438,8 @@ class LaunchFilePorter:
 
     def generate_report(self):
         if len(self.problems) > 0:
-            print(self.problems)
             rep = f"Launch file: {self.src}\n"
             rep += "\t" + "\n\t".join(self.problems)
         else:
             rep = ""
         return rep
-
-
-if __name__ == "__main__":
-    #src = "/home/mathia/Programming/ros1_ws/src/motoman_gp25_support/launch/load_gp25.launch"
-    src = "/home/mathia/Programming/ros1_ws/src/motoman_gp25_support/launch/robot_interface_streaming_gp25.launch"
-    #src = "/home/mathia/Programming/ros1_ws/src/motoman_gp25_support/launch/robot_state_visualize_gp25.launch"
-    conv = LaunchFilePorter(src)
-    conv.port("./updated.launch")

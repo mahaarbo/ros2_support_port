@@ -210,9 +210,3 @@ class PackageXMLPorter:
                 rep += "\n"
             rep += "\n"
         return rep
-
-
-if __name__ == '__main__':
-    src = "/home/mathia/Programming/ros1_ws/src/motoman_gp7_support/package.xml"
-    conv = PackageXMLPorter(src)
-    conv.port("./updated_package.xml")
