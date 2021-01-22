@@ -231,14 +231,18 @@ class CMakeListsPorter:
         if rem_pkgs + mis_pkgs + ren_pkgs > 0:
             rep += f"CMakeLists.txt file: {self.src}\n"
             if mis_pkgs > 0:
-                rep += "\nMissing packages:\n"
+                rep += "Missing packages:\n"
                 rep += "\t" + "\n\t".join(self.unknown_packages)
+                rep += "\n"
             if rem_pkgs > 0:
-                rep += "\nRemoved packages:\n"
+                rep += "Removed packages:\n"
                 rep += "\t" + "\n\t".join(self.removed_packages)
+                rep += "\n"
             if ren_pkgs > 0:
-                rep += "\nRenamed packages:\n"
+                rep += "Renamed packages:\n"
                 rep += "\t" + "\n\t".join(self.renamed_packages)
+                rep += "\n"
+            rep += "\n"
         return rep
 
 

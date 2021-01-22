@@ -18,7 +18,10 @@ KNOWN_CPP_EXTS = [
 
 
 class Migrator:
-    def __init__(self, src: Path, dst: Path):
+    def __init__(self, src: Path, dst: Path,
+                 extra_rules_launch=[],
+                 extra_rules_cmakelists=[],
+                 extra_rules_packagexml=[]):
         self.src = src
         self.dst = dst
         # Final report
@@ -26,8 +29,14 @@ class Migrator:
         # Files to find
         self.pkg_xml_path = None
         self.cmklists_path = None
+        # Information
         self.files_to_transfer_by_hand = []
         self.blindly_transferred = []
+        # Extra rules
+        self.extra_rules_launch = extra_rules_launch
+        self.extra_rules_cmakelists = extra_rules_cmakelists
+        self.extra_rules_packagexml = extra_rules_packagexml
+
         src_path = Path(src).resolve()
 
         # Traverse the src directory to gather files and information
@@ -64,7 +73,6 @@ class Migrator:
     def ros_aware_copy(self, src: Path, dst: Path):
         """ROS aware choice of copy function. Uses known data."""
         if src.is_dir():
-            print("IS_DIR")
             dst.mkdir(parents=True, exist_ok=True)
             return
         
@@ -88,17 +96,17 @@ class Migrator:
     #########################
     def copy_launch(self, src, dst):
         conv = LaunchFilePorter(src)
-        conv.port(dst)
+        conv.port(dst, extra_rules=self.extra_rules_launch)
         self.reports.append(conv.generate_report())
 
     def copy_cmakelists(self, src, dst):
         conv = CMakeListsPorter(src)
-        conv.port(dst)
+        conv.port(dst, extra_rules=self.extra_rules_cmakelists)
         self.reports.append(conv.generate_report())
 
     def copy_packagexml(self, src, dst):
         conv = PackageXMLPorter(src)
-        conv.port(dst)
+        conv.port(dst, extra_rules=self.extra_rules_packagexml)
         self.reports.append(conv.generate_report())
 
     #########################
@@ -115,6 +123,7 @@ class Migrator:
         if len(self.reports) > 0:
             rep += "\n\nReports from the porting tools:\n"
             rep += "\n".join(filter(None, self.reports))
+        rep += "\n"
         return rep
 
 

@@ -16,16 +16,16 @@ import xml.etree.ElementTree as etree
 import xml.dom.minidom
 import logging
 from .constants import (RENAMED_ROS_PACKAGES,
-                       NO_PKG_XML_DEPENDS,
-                       PACKAGE_XML_ELEMENT_ORDER)
+                        NO_PKG_XML_DEPENDS,
+                        PACKAGE_XML_ELEMENT_ORDER)
 
 try:
     from ament_index_python import get_packages_with_prefixes
     KNOWN_ROS2_PKGS = get_packages_with_prefixes().keys()
 except ImportError:
     KNOWN_ROS2_PKGS = []
-    logging.info("Source a ROS2 workspace to get more info about missing \
-        packages. Without, all packages will be listed as missing.")
+    logging.info("Source a ROS2 workspace to get more info about missing"
+                 "packages. Without, all packages will be listed as missing.")
 
 
 def _new_element(tag, text="", attrib=None):
@@ -154,13 +154,13 @@ class PackageXMLPorter:
                 continue
             # General things
             self.found_packages.append(elem.text)
-            if elem.text not in KNOWN_ROS2_PKGS:
-                self.missing_packages.append(elem.text)
             # Rename packages
             if elem.text in RENAMED_ROS_PACKAGES.keys():
                 new_name = RENAMED_ROS_PACKAGES[elem.text]
                 self.renamed_packages.append(elem.text+" -> "+new_name)
                 elem.text = new_name
+            elif elem.text not in KNOWN_ROS2_PKGS:
+                self.missing_packages.append(elem.text)
 
     def rule_update_test_depend(self, package_root):
         package_root.append(
@@ -181,6 +181,10 @@ class PackageXMLPorter:
             if elem.text in NO_PKG_XML_DEPENDS:
                 self.removed_packages.append(elem.text)
                 package_root.remove(elem)
+        # Remove them from missing_packages
+        for pkg in self.removed_packages:
+            if pkg in self.missing_packages:
+                self.missing_packages.remove(pkg)
 
     #########################
     #          HELPERS      #
@@ -193,14 +197,18 @@ class PackageXMLPorter:
         if rem_pkgs + mis_pkgs + ren_pkgs > 0:
             rep += f"Package.xml file: {self.src}\n"
             if mis_pkgs > 0:
-                rep += "\nMissing packages:\n"
+                rep += "Missing packages:\n"
                 rep += "\t" + "\n\t".join(self.missing_packages)
+                rep += "\n"
             if rem_pkgs > 0:
-                rep += "\nRemoved packages:\n"
+                rep += "Removed packages:\n"
                 rep += "\t" + "\n\t".join(self.removed_packages)
+                rep += "\n"
             if ren_pkgs > 0:
-                rep += "\nRenamed packages:\n"
+                rep += "Renamed packages:\n"
                 rep += "\t" + "\n\t".join(self.renamed_packages)
+                rep += "\n"
+            rep += "\n"
         return rep
 
 

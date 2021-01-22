@@ -9,6 +9,15 @@ from .constants import RENAMED_ROS_PACKAGES, RENAMED_ROS_EXECUTABLES
 from .launch_actions.launch_action import LaunchAction, LaunchCondition
 from .launch_actions.include_launch_description import IncludeLaunchDescription
 
+try:
+    from ament_index_python import get_packages_with_prefixes
+    KNOWN_ROS2_PKGS = sorted(list(get_packages_with_prefixes().keys()))
+except ImportError:
+    KNOWN_ROS2_PKGS = []
+    logging.info("Source a ROS2 workspace to get more info about missing"
+                 " packages. Without it, all packages will be listed as "
+                 "missing.")
+
 
 class LaunchFilePorter:
     """
@@ -24,10 +33,10 @@ class LaunchFilePorter:
         # Launch Description entity strings, for when things are defined
         # in the preparatory stage, and later referenced f.ex.
         self.ld_entity_strings = []
-        self.problems = []
         self.global_params = []
+        self.problems = []
 
-    def port(self, dst, extra_rules=[]):
+    def port(self, dst: Path, extra_rules=[]):
         """
         Port the launch file.
         """
@@ -39,9 +48,10 @@ class LaunchFilePorter:
         rules = [
             self.rule_convert_args,
             self.rule_convert_params,
+            self.rule_report_rosparam,
             self.rule_convert_groups,
-            self.rule_convert_nodes,
             self.rule_convert_includes,
+            self.rule_convert_nodes,
             self.rule_robot_state_publisher
         ]
 
@@ -70,6 +80,8 @@ class LaunchFilePorter:
         launch_contents = autopep8.fix_code(rendered_template)
 
         # Write
+        if "py" not in dst.suffix:
+            dst = dst.with_suffix(dst.suffix + ".py")
         with open(dst, "w") as fdst:
             fdst.write(launch_contents)
 
@@ -120,6 +132,21 @@ class LaunchFilePorter:
             parameter[param_name] = param_value
             self.global_params.append(parameter)
 
+    def rule_report_rosparam(self, root_elem):
+        """
+        Report <rosparam> tags. No handling at the moment.
+        """
+        first_warn = True
+        for elem in root_elem.findall("rosparam"):
+            if first_warn:
+                warn = "Since loading of parameters has changed. These must " \
+                       " be ported by hand."
+                self.problems.append(warn)
+                first_warn = False
+            self.problems.append(
+                etree.tostring(elem, encoding="unicode").strip()
+            )
+
     def rule_convert_groups(self, root_elem):
         """
         Convert all <group> elements and their subelements.
@@ -131,7 +158,7 @@ class LaunchFilePorter:
                 logging.warning(warn)
                 self.problems.append(warn)
                 self.problems.append(
-                    etree.tostring(elem)
+                    etree.tostring(elem, encoding="unicode").strip()
                 )
                 continue
             converted_attrib = self.convert_attribute(group_if_attrib)
@@ -172,8 +199,8 @@ class LaunchFilePorter:
                     if "parameters" not in action.parameters.keys():
                         action.parameters["parameters"] = []
                     action.parameters["parameters"].append(
-                        "{'robot_description': LaunchConfiguration"
-                        "('robot_description')}"
+                        "{'robot_description': launch.substitutions."
+                        "LaunchConfiguration('robot_description')}"
                     )
 
     #########################
@@ -212,7 +239,7 @@ class LaunchFilePorter:
                 ]
             )
             package = find_search.group(1)
-            file_path = find_search.group(2)
+            file_path = self._convert_attribute(find_search.group(2))
             return f"PathJoinSubstitution([FindPackageShare('{package}'),\
                  '{file_path}''])"
         if re.search(r"\'", value):
@@ -237,7 +264,11 @@ class LaunchFilePorter:
         node_params = self.global_params + self._convert_param_elems(elem)
         if len(node_params) > 0:
             launch_action.set_parameter("parameters", node_params)
-
+        if launch_action.parameters["package"][1:-1] not in KNOWN_ROS2_PKGS:
+            problem_pkg = launch_action.parameters["package"]
+            warn = f"A node in {problem_pkg} will be launched, but the " \
+                " package could not be found with ament_cmake."
+            self.problems.append(warn)
         return launch_action
 
     def _convert_param_elems(self, node_elem):
@@ -264,7 +295,9 @@ class LaunchFilePorter:
             warn = "Found <include> elemenet without 'file' attribute"
             logging.warning(warn)
             self.problems.append(warn)
-            self.problems.append(etree.tostring(elem))
+            self.problems.append(
+                etree.tostring(elem, encoding="unicode").strip()
+            )
             return None
         file_info = re.search(
             r"\$\(find ([a-zA-Z0-9_]+)\)(.*)",
@@ -275,7 +308,9 @@ class LaunchFilePorter:
                    " invalid"
             logging.warning(warn)
             self.problems.append(warn)
-            self.problems.append(etree.tostring(elem))
+            self.problems.append(
+                etree.tostring(elem, encoding="unicode").strip()
+            )
             return None
         package = file_info.group(1)
         path = file_info.group(2)
@@ -286,8 +321,13 @@ class LaunchFilePorter:
             arguments[name] = value
         self.imports.update([
             "from ament_index_python.packages import"
-            " get_package_share_directory"
+            " get_package_share_directory",
+            "import os.path"
         ])
+        if package not in KNOWN_ROS2_PKGS:
+            warn = f"Includes launch description from {package} but the " \
+                "package was not found by ament_cmake."
+            self.problems.append(warn)
         return IncludeLaunchDescription(package, path, arguments)
 
     def _convert_robot_description(self, elem):
@@ -301,7 +341,7 @@ class LaunchFilePorter:
         if urdf_attrib is not None or xacro_attrib is not None:
             self.imports.update(
                 [
-                    "from launch.substitutions import PathJointSubstitution",
+                    "from launch.substitutions import PathJoinSubstitution",
                     "from launch_ros.substitutions import FindPackageShare"
                 ]
             )
@@ -318,13 +358,14 @@ class LaunchFilePorter:
             subpath = urdf_search.group(2)
             urdf_location = "urdf_path = PathJoinSubstitution("
             urdf_location += f"[FindPackageShare('{package}'), '{subpath}'])"
-            robot_description_path = "robot_description_path = "
-            robot_description_path += "SetLaunchConfiguration("
-            robot_description_path += "name='robot_description_path',"
-            robot_description_path += "value=urdf_path)"
-            robot_description = "robot_description = SetLaunchConfiguration("
-            robot_description += "name='robot_description',"
-            robot_description += "value=Command(['cat', '', urdf_path]))"
+            robot_description_path = "robot_description_path = " \
+                                     "SetLaunchConfiguration(" \
+                                     "name='robot_description_path'," \
+                                     "value=urdf_path)"
+            robot_description = "robot_description = SetLaunchConfiguration(" \
+                                "name='robot_description'," \
+                                "value=launch.substitutions.Command" \
+                                "(['cat', ' ', urdf_path]))"
             self.preparatory.append(urdf_location)
             self.preparatory.append(robot_description)
             self.preparatory.append(robot_description_path)
@@ -340,7 +381,9 @@ class LaunchFilePorter:
                        " was made with xacro."
                 logging.warning(warn)
                 self.problems.append(warn)
-                self.problems.append(etree.tostring(elem))
+                self.problems.append(
+                    etree.tostring(elem, encoding="unicode").strip()
+                )
             # Modified search to remove final quotation mark
             xacro_search = re.search(
                 r"\$\(find ([a-zA-Z0-9_]+)\)(.*)['\"]",
@@ -356,13 +399,14 @@ class LaunchFilePorter:
                     xacro_path += "'" + part + "',"
             xacro_path += "'" + split_path[-1] + "'])"
             robot_description_path = "robot_description_path = launch." \
-                                     "actions.DeclareLaunchConfiguration(" \
+                                     "actions.SetLaunchConfiguration(" \
                                      "name='robot_description_path'," \
                                      "value=xacro_path)"
             robot_description = "robot_description = launch.actions." \
-                                "DeclareLaunchConfiguration(" \
-                                "name='robot_descripton'," \
-                                "value=Command(['xacro', '', xacro_path]))"
+                                "SetLaunchConfiguration(" \
+                                "name='robot_description'," \
+                                "value=launch.substitutions.Command" \
+                                "(['xacro', ' ', xacro_path]))"
             self.preparatory.append(xacro_path)
             self.preparatory.append(robot_description)
             self.preparatory.append(robot_description_path)
@@ -374,7 +418,7 @@ class LaunchFilePorter:
         serialized_actions = []
         for action in list_actions:
             serialized_actions.append(action.serialize())
-        return ",\n".join(serialized_actions + self.ld_entity_strings)
+        return ",\n".join(self.ld_entity_strings + serialized_actions)
 
     def _renamed_get(self, elem, tag, default=None):
         """
@@ -394,12 +438,12 @@ class LaunchFilePorter:
 
     def generate_report(self):
         if len(self.problems) > 0:
+            print(self.problems)
             rep = f"Launch file: {self.src}\n"
-            rep += "\n".join(self.problems)
+            rep += "\t" + "\n\t".join(self.problems)
         else:
             rep = ""
         return rep
-        
 
 
 if __name__ == "__main__":
